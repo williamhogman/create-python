@@ -122,12 +122,3 @@ class CodeManager(collections.defaultdict):
         x = Script(key)
         self[key] = Script(key)
         return Script(key)
-
-
-class PlainPythonSys(ObjectWrapper):
-    def __init__(self, response):
-        ObjectWrapper.__init__(self, sys)
-
-        
-
-        self.stdout = Wrt()
