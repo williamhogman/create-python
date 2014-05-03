@@ -1,7 +1,6 @@
 import os.path
 import sys
 import collections
-from peak.util.proxies import ObjectWrapper
 from werkzeug.wrappers import Response
 
 __all__ = ("CodeManager",)
