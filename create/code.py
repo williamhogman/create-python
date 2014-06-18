@@ -1,7 +1,8 @@
 import os.path
-import sys
+
 import collections
 from werkzeug.wrappers import Response
+import create.ppruntime as ppruntime
 
 __all__ = ("CodeManager",)
 
@@ -32,45 +33,32 @@ def run_code(code, name=None):
         g["__name__"] = name
 
     l = {}
-    exec(code, g, l)
-    return l
+    try:
+        exec(code, g, l)
+    except StandardError as ex:
+        return False, ex
+    else:
+        return True, l
 
-class Wrt(object):
-    def __init__(self, resp):
-        self.resp = resp
-
-    def write(self, s):
-        self.resp.response.append(s)
-
-def run_code_plain_python(code, request, response):
-    old_stdout = sys.stdout
-    sys.stdout = Wrt(response)
-
-    g = {
-        "__name__": "__main__",
-        "request": request,
-        "response": response,
-        "__web__": True
-    }
-    l = {}
-
-    exec(code, g, l)
-
-    sys.stdout = old_stdout
 
 CACHE_DELTA = 0
+
+class BadScriptError(Exception):
+    pass
 
 class Script(object):
     def __init__(self, path):
         self.path = path
         self.opts = {}
-        self.clean()
+        self.mtime = 0
 
-    def clean(self):
-        self.mtime = self.file_mtime() 
+    def inspect(self, code):
+        """Inspects the code, in order to establish if has any options"""
+        success, module = run_code(code)
 
-        code = compile_file(self.path)
-        module = run_code(code)
+        if not success:
+            msg = "Inspecting the script caused exception: {}".format(repr(module))
+            raise BadScriptError(msg)
 
         if "__webopts__" in module:
             self.opts = module["__webopts__"]
@@ -82,11 +70,14 @@ class Script(object):
         elif "handle_request" in module:
             self.opts["request_handler"] = "handle_request"
 
-
         if self.opts.get("mode") != "plain-python":
             self.code = None
             self.module = module
 
+    def clean(self):
+        self.mtime = self.file_mtime()
+        code = compile_file(self.path)
+        self.inspect(code)
 
     def file_mtime(self):
         return os.path.getmtime(self.path)
@@ -96,10 +87,14 @@ class Script(object):
             self.clean()
 
     def run(self, request):
-        self.update()
+        try:
+            self.update()
+        except BadScriptError:
+            resp = Response("Unable to run script", status=500)
+            return resp
+
         if self.opts.get("mode") == "plain-python":
-            response = Response([])
-            run_code_plain_python(self.code, request, response)
+            ppruntime.run_code(self.code, request)
             return response
         else:
             response = Response()
